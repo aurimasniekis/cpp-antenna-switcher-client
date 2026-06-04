@@ -19,8 +19,10 @@ namespace {
 // ANSI control sequences (DEC save/restore cursor + line editing). The escape
 // and the trailing digit are kept as separate string literals so the digit does
 // not extend the octal escape (and so MSVC's C4125 stays quiet).
-constexpr auto save_cursor = "\033" "7";
-constexpr auto restore_cursor = "\033" "8";
+constexpr auto save_cursor = "\033"
+                             "7";
+constexpr auto restore_cursor = "\033"
+                                "8";
 constexpr auto cursor_up_3 = "\033[3A";
 constexpr auto cursor_down_1 = "\033[1B";
 constexpr auto clear_line = "\r\033[2K";
