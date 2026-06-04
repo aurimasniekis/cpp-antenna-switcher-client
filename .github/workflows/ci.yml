@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+            build_type: Debug
+            cc: gcc-14
+            cxx: g++-14
+          - os: ubuntu-latest
+            compiler: gcc
+            build_type: Release
+            cc: gcc-14
+            cxx: g++-14
+          - os: ubuntu-latest
+            compiler: clang
+            build_type: Debug
+            cc: clang-20
+            cxx: clang++-20
+          - os: macos-latest
+            compiler: default
+            build_type: Debug
+            cc: clang
+            cxx: clang++
+          - os: macos-latest
+            compiler: default
+            build_type: Release
+            cc: clang
+            cxx: clang++
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # esphome-api-client builds protobuf transitively; provide a system one.
+      - name: Install toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build protobuf-compiler libprotobuf-dev
+
+      - name: Install GCC 14
+        if: runner.os == 'Linux' && matrix.cxx == 'g++-14'
+        run: sudo apt-get install -y gcc-14 g++-14
+
+      - name: Install Clang 20
+        if: matrix.compiler == 'clang'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          sudo add-apt-repository -y "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-20 main"
+          sudo apt-get update
+          sudo apt-get install -y clang-20
+
+      - name: Install toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja protobuf
+
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v5
+        with:
+          path: build/_deps
+          key: deps-${{ matrix.os }}-${{ matrix.compiler }}-${{ hashFiles('cmake/Dependencies.cmake') }}
+          restore-keys: |
+            deps-${{ matrix.os }}-${{ matrix.compiler }}-
+
+      - name: Build + test
+        env:
+          CC:  ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          BUILD_TYPE: ${{ matrix.build_type }}
+        run: make test
+
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    env:
+      CC:  clang-20
+      CXX: clang++-20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install toolchain
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build protobuf-compiler libprotobuf-dev
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          sudo add-apt-repository -y "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-20 main"
+          sudo apt-get update && sudo apt-get install -y clang-20
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v5
+        with:
+          path: build-san/_deps
+          key: deps-san-${{ hashFiles('cmake/Dependencies.cmake') }}
+      - name: Configure + build + test under sanitizers
+        env:
+          ASAN_OPTIONS:  detect_leaks=1:check_initialization_order=1:strict_init_order=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make sanitize
+
+  clang-tidy:
+    name: clang-tidy
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install tools
+        run: brew install ninja llvm protobuf
+      - name: Put Homebrew clang-tidy on PATH
+        run: echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+      - name: Cache FetchContent dependencies
+        uses: actions/cache@v5
+        with:
+          path: build-tidy/_deps
+          key: deps-tidy-macos-${{ hashFiles('cmake/Dependencies.cmake') }}
+      - name: Configure + build (runs clang-tidy)
+        run: make tidy
+
+  format:
+    name: clang-format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install clang-format
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          sudo add-apt-repository -y "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-22 main"
+          sudo apt-get update
+          sudo apt-get install -y clang-format-22
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-22 100
+      - name: Check formatting
+        run: make format-check

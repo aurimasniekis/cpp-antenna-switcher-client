@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Threads)
+find_dependency(esphome-api-client)
+
+include("${CMAKE_CURRENT_LIST_DIR}/antenna-switcher-clientTargets.cmake")
+
+check_required_components(antenna-switcher-client)

@@ -1,0 +1,60 @@
+---
+Language:        Cpp
+BasedOnStyle:    LLVM
+Standard:        c++17
+
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+ColumnLimit:     100
+
+PointerAlignment:               Left
+ReferenceAlignment:             Left
+AccessModifierOffset:           -4
+NamespaceIndentation:           None
+FixNamespaceComments:           true
+CompactNamespaces:              false
+
+AlignAfterOpenBracket:          Align
+AlignConsecutiveAssignments:    false
+AlignConsecutiveDeclarations:   false
+AlignTrailingComments:          true
+
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine:    false
+AllowShortLambdasOnASingleLine:  All
+AllowShortBlocksOnASingleLine:   Empty
+
+BinPackArguments:                false
+BinPackParameters:               false
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces:               Attach
+BreakConstructorInitializers:    BeforeColon
+
+SpaceAfterTemplateKeyword:       true
+SpacesBeforeTrailingComments:    2
+
+IncludeBlocks:   Regroup
+IncludeCategories:
+  - Regex:           '^"cli/.*"'
+    Priority:        1
+  - Regex:           '^<antenna_switcher/.*>'
+    Priority:        2
+  - Regex:           '^<esphome/api/.*>'
+    Priority:        3
+  - Regex:           '^<gtest/.*>'
+    Priority:        4
+  - Regex:           '^<(CLI|nlohmann)/.*>'
+    Priority:        6
+  - Regex:           '^<spdlog/.*>'
+    Priority:        8
+  - Regex:           '^<[a-z_]+>'
+    Priority:        7
+  - Regex:           '^<.*\.h>'
+    Priority:        9
+  - Regex:           '.*'
+    Priority:        5
+
+SortIncludes:    CaseSensitive
+SortUsingDeclarations: true

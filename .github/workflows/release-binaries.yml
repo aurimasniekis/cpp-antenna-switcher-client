@@ -1,0 +1,138 @@
+name: Release binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # The 3.21 series (pre-abseil) esphome-api-client is verified against; built
+  # from source + statically linked so the released binaries are self-contained.
+  PB_VERSION: v21.12
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Build on the oldest supported runner image so the released binaries
+          # keep a low glibc baseline (22.04 ships glibc 2.35); building on
+          # ubuntu-latest (24.04, glibc 2.39) bakes in GLIBC_2.36+ symbols that
+          # fail to run on older servers.
+          - os: ubuntu-22.04
+            target: linux-x86_64
+          - os: ubuntu-22.04-arm
+            target: linux-arm64
+          - os: macos-15-intel
+            target: macos-intel
+          - os: macos-15
+            target: macos-arm64
+          - os: windows-latest
+            target: windows-x86_64
+            experimental: true
+    steps:
+      - uses: actions/checkout@v6
+
+      # --- build a static protobuf from source (Unix) -------------------------
+      - name: Build protobuf from source (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          git clone --depth 1 --branch "$PB_VERSION" \
+            https://github.com/protocolbuffers/protobuf.git pb-src
+          cmake -S pb-src -B pb-src/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DCMAKE_INSTALL_PREFIX="$PWD/pb-install" \
+            -Dprotobuf_BUILD_TESTS=OFF \
+            -Dprotobuf_BUILD_SHARED_LIBS=OFF \
+            -Dprotobuf_WITH_ZLIB=OFF
+          cmake --build pb-src/build -j 4
+          cmake --install pb-src/build
+
+      - name: Build protobuf from source (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch "$env:PB_VERSION" `
+            https://github.com/protocolbuffers/protobuf.git pb-src
+          cmake -S pb-src -B pb-src/build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON `
+            "-DCMAKE_INSTALL_PREFIX=$env:GITHUB_WORKSPACE/pb-install" `
+            -Dprotobuf_BUILD_TESTS=OFF `
+            -Dprotobuf_BUILD_SHARED_LIBS=OFF `
+            -Dprotobuf_MSVC_STATIC_RUNTIME=OFF `
+            -Dprotobuf_WITH_ZLIB=OFF
+          cmake --build pb-src/build --config Release -j 4
+          cmake --install pb-src/build --config Release
+
+      # --- configure + build antenna-switcher-cli against that protobuf -------
+      - name: Configure + build (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -e
+          args=(
+            -S . -B build
+            -DCMAKE_BUILD_TYPE=Release
+            -DANTENNA_SWITCHER_BUILD_CLI=ON
+            -DANTENNA_SWITCHER_BUILD_TESTS=OFF
+            -DANTENNA_SWITCHER_BUILD_EXAMPLES=OFF
+            -DANTENNA_SWITCHER_INSTALL=OFF
+            -DCMAKE_PREFIX_PATH="$PWD/pb-install"
+          )
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            args+=("-DCMAKE_EXE_LINKER_FLAGS=-static-libgcc -static-libstdc++")
+          fi
+          cmake "${args[@]}"
+          cmake --build build --config Release --target antenna-switcher-cli -j 4
+
+      - name: Configure + build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S . -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DANTENNA_SWITCHER_BUILD_CLI=ON `
+            -DANTENNA_SWITCHER_BUILD_TESTS=OFF `
+            -DANTENNA_SWITCHER_BUILD_EXAMPLES=OFF `
+            -DANTENNA_SWITCHER_INSTALL=OFF `
+            "-DCMAKE_PREFIX_PATH=$env:GITHUB_WORKSPACE/pb-install"
+          cmake --build build --config Release --target antenna-switcher-cli -j 4
+
+      # --- package + publish --------------------------------------------------
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp build/bin/antenna-switcher-cli "dist/antenna-switcher-cli-${{ matrix.target }}"
+          strip "dist/antenna-switcher-cli-${{ matrix.target }}" || true
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $exe = if (Test-Path build/bin/Release/antenna-switcher-cli.exe) { 'build/bin/Release/antenna-switcher-cli.exe' } else { 'build/bin/antenna-switcher-cli.exe' }
+          Copy-Item $exe "dist/antenna-switcher-cli-${{ matrix.target }}.exe"
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
+
+      - name: Upload artifact (manual runs)
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: antenna-switcher-cli-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
