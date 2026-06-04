@@ -6,7 +6,7 @@ include_guard(GLOBAL)
 #
 # Why per-target rather than the global CMAKE_CXX_CLANG_TIDY?  Setting the
 # variable globally causes every FetchContent'd dependency (esphome-api-client
-# and, transitively, protobuf / abseil / libsodium / googletest) to inherit the
+# and, transitively, googletest) to inherit the
 # clang-tidy command, and many of them fail under our `.clang-tidy` config —
 # they're not our code to fix. Scoping the property to our own targets keeps the
 # linter focused on antenna-switcher-client code.

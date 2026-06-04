@@ -40,7 +40,9 @@ antenna_switcher_enable_sanitizers(antenna-switcher-cli)
 antenna_switcher_enable_coverage(antenna-switcher-cli)
 antenna_switcher_enable_clang_tidy(antenna-switcher-cli)
 
-if(ANTENNA_SWITCHER_INSTALL)
+if(ANTENNA_SWITCHER_INSTALL_CLI)
     include(GNUInstallDirs)
-    install(TARGETS antenna-switcher-cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(TARGETS antenna-switcher-cli
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT cli)
 endif()

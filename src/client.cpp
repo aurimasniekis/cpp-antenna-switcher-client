@@ -16,7 +16,7 @@
 #include <esphome/api/model/entity_store.hpp>
 #include <esphome/api/model/entity_type.hpp>
 #include <esphome/api/proto/message_id.hpp>
-#include <esphome/api/proto/proto_fwd.hpp>
+#include <esphome/api/proto/proto_message.hpp>
 
 #include <array>
 #include <atomic>

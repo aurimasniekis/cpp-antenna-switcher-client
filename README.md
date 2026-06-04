@@ -117,9 +117,9 @@ target directly.
 - **Language:** C++17. (The project sets `CMAKE_CXX_STANDARD 17` / `target_compile_features(... cxx_std_17)`.)
 - **Build system:** CMake ≥ 3.25.
 - **Required dependency:** [esphome-api-client](https://github.com/aurimasniekis/cpp-esphome-api)
-  (`esphome::api`), resolved via FetchContent from the `v0.2.0` release tarball. It builds Protocol
-  Buffers (protobuf) transitively — provide a system `protobuf` (as CI does) to avoid building it
-  from source.
+  (`esphome::api`), resolved via FetchContent from the `v0.3.0` release tarball. As of v0.3.0 the
+  protobuf wire layer and the Noise crypto are carried in-tree, so the only thing fetched for the
+  library is header-only Asio — there are no system `protobuf`/`libsodium` prerequisites.
 
 
 ## Core concepts

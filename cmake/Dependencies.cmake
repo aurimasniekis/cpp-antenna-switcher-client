@@ -9,15 +9,15 @@ include(FetchContent)
 
 # ---------------------------------------------------------------------------
 # 1. esphome-api-client — the generic ESPHome native-API client this library
-#    wraps. Fetched from the GitHub release tarball (v0.2.0 by default, pinned
+#    wraps. Fetched from the GitHub release tarball (v0.3.0 by default, pinned
 #    with URL+URL_HASH). Pin a different release with -DANTENNA_SWITCHER_ESPHOME_API_URL=…
 #    / -DANTENNA_SWITCHER_ESPHOME_API_URL_HASH=….
 # ---------------------------------------------------------------------------
 set(ANTENNA_SWITCHER_ESPHOME_API_URL
-    "https://github.com/aurimasniekis/cpp-esphome-api/archive/refs/tags/v0.2.0.tar.gz"
+    "https://github.com/aurimasniekis/cpp-esphome-api/archive/refs/tags/v0.3.0.tar.gz"
     CACHE STRING "esphome-api-client release tarball URL")
 set(ANTENNA_SWITCHER_ESPHOME_API_URL_HASH
-    "SHA256=e82e7a9f18ba0081edd3917fdf707f5d3f58405afd0ca382771ce8e3f5d00bc2"
+    "SHA256=46968a664a80778efdd675bade064f7af5f0fec55996831d815333565dd96c4b"
     CACHE STRING "Expected hash of the esphome-api-client release tarball")
 
 # The wrapper only needs the generic client; keep its tests/examples/cli off.

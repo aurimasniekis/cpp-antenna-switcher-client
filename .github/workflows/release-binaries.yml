@@ -8,11 +8,6 @@ on:
 permissions:
   contents: write
 
-env:
-  # The 3.21 series (pre-abseil) esphome-api-client is verified against; built
-  # from source + statically linked so the released binaries are self-contained.
-  PB_VERSION: v21.12
-
 jobs:
   build:
     name: ${{ matrix.target }}
@@ -40,41 +35,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # --- build a static protobuf from source (Unix) -------------------------
-      - name: Build protobuf from source (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          set -e
-          git clone --depth 1 --branch "$PB_VERSION" \
-            https://github.com/protocolbuffers/protobuf.git pb-src
-          cmake -S pb-src -B pb-src/build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-            -DCMAKE_INSTALL_PREFIX="$PWD/pb-install" \
-            -Dprotobuf_BUILD_TESTS=OFF \
-            -Dprotobuf_BUILD_SHARED_LIBS=OFF \
-            -Dprotobuf_WITH_ZLIB=OFF
-          cmake --build pb-src/build -j 4
-          cmake --install pb-src/build
-
-      - name: Build protobuf from source (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          git clone --depth 1 --branch "$env:PB_VERSION" `
-            https://github.com/protocolbuffers/protobuf.git pb-src
-          cmake -S pb-src -B pb-src/build `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_POSITION_INDEPENDENT_CODE=ON `
-            "-DCMAKE_INSTALL_PREFIX=$env:GITHUB_WORKSPACE/pb-install" `
-            -Dprotobuf_BUILD_TESTS=OFF `
-            -Dprotobuf_BUILD_SHARED_LIBS=OFF `
-            -Dprotobuf_MSVC_STATIC_RUNTIME=OFF `
-            -Dprotobuf_WITH_ZLIB=OFF
-          cmake --build pb-src/build --config Release -j 4
-          cmake --install pb-src/build --config Release
-
-      # --- configure + build antenna-switcher-cli against that protobuf -------
       - name: Configure + build (Unix)
         if: runner.os != 'Windows'
         run: |
@@ -86,7 +46,6 @@ jobs:
             -DANTENNA_SWITCHER_BUILD_TESTS=OFF
             -DANTENNA_SWITCHER_BUILD_EXAMPLES=OFF
             -DANTENNA_SWITCHER_INSTALL=OFF
-            -DCMAKE_PREFIX_PATH="$PWD/pb-install"
           )
           if [ "$RUNNER_OS" = "Linux" ]; then
             args+=("-DCMAKE_EXE_LINKER_FLAGS=-static-libgcc -static-libstdc++")
@@ -103,8 +62,7 @@ jobs:
             -DANTENNA_SWITCHER_BUILD_CLI=ON `
             -DANTENNA_SWITCHER_BUILD_TESTS=OFF `
             -DANTENNA_SWITCHER_BUILD_EXAMPLES=OFF `
-            -DANTENNA_SWITCHER_INSTALL=OFF `
-            "-DCMAKE_PREFIX_PATH=$env:GITHUB_WORKSPACE/pb-install"
+            -DANTENNA_SWITCHER_INSTALL=OFF
           cmake --build build --config Release --target antenna-switcher-cli -j 4
 
       # --- package + publish --------------------------------------------------

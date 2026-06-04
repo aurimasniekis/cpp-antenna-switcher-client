@@ -32,6 +32,10 @@ option(ANTENNA_SWITCHER_BUILD_TESTS       "Build tests"                     ${PR
 option(ANTENNA_SWITCHER_BUILD_EXAMPLES    "Build examples"                  ${PROJECT_IS_TOP_LEVEL})
 option(ANTENNA_SWITCHER_BUILD_DOCS        "Build Doxygen API documentation" OFF)
 option(ANTENNA_SWITCHER_INSTALL           "Generate install rules"          ${PROJECT_IS_TOP_LEVEL})
+# Decoupled from ANTENNA_SWITCHER_INSTALL so packaging can ship just the CLI:
+# the .deb/.rpm release build turns the library install off and this on, leaving
+# the CLI binary as the only staged file.
+option(ANTENNA_SWITCHER_INSTALL_CLI       "Generate install rules for the antenna-switcher-cli executable" ${ANTENNA_SWITCHER_INSTALL})
 option(ANTENNA_SWITCHER_ENABLE_CLANG_TIDY "Run clang-tidy during build"     OFF)
 option(ANTENNA_SWITCHER_ENABLE_SANITIZERS "Build with ASan + UBSan (Debug)" OFF)
 option(ANTENNA_SWITCHER_ENABLE_COVERAGE   "Build with Clang source-based coverage" OFF)
@@ -175,4 +179,8 @@ if(ANTENNA_SWITCHER_INSTALL)
         "${CMAKE_CURRENT_BINARY_DIR}/antenna-switcher-clientConfigVersion.cmake"
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/antenna-switcher-client
     )
+endif()
+
+if(PROJECT_IS_TOP_LEVEL)
+    include("${ANTENNA_SWITCHER_CMAKE_DIR}/Packaging.cmake")
 endif()
