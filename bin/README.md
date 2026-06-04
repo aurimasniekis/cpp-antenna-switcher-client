@@ -28,6 +28,21 @@ binary is the entrypoint, so just append the usual arguments.
 brew install aurimasniekis/tap/antenna-switcher-cli
 ```
 
+### Linux packages (.deb / .rpm)
+
+Each [release](https://github.com/aurimasniekis/cpp-antenna-switcher-client/releases) attaches `.deb`
+and `.rpm` packages for `x86_64` and `arm64`. Download the one for your distro and architecture, then:
+
+```sh
+# Debian / Ubuntu
+sudo apt install ./antenna-switcher-cli_0.3.0_amd64.deb
+
+# Fedora / RHEL / openSUSE
+sudo rpm -i antenna-switcher-cli-0.3.0-1.x86_64.rpm
+```
+
+The package installs `antenna-switcher-cli` to `/usr/bin`.
+
 ### From source
 
 ```sh
