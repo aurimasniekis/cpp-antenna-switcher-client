@@ -83,8 +83,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 FetchContent_Declare(antenna-switcher-client
-    URL      https://github.com/aurimasniekis/cpp-antenna-switcher-client/archive/refs/tags/v0.4.0.tar.gz
-    URL_HASH SHA256=dbf6c0f63d40be301b700362a58599a1911d054beac6b8ce47e44dcfbb75857c
+    URL      https://github.com/aurimasniekis/cpp-antenna-switcher-client/archive/refs/tags/v0.4.1.tar.gz
+    URL_HASH SHA256=0000000000000000000000000000000000000000000000000000000000000000  # replace with the v0.4.1 checksum
 )
 FetchContent_MakeAvailable(antenna-switcher-client)
 
@@ -117,7 +117,7 @@ target directly.
 - **Language:** C++17. (The project sets `CMAKE_CXX_STANDARD 17` / `target_compile_features(... cxx_std_17)`.)
 - **Build system:** CMake ≥ 3.25.
 - **Required dependency:** [esphome-api-client](https://github.com/aurimasniekis/cpp-esphome-api)
-  (`esphome::api`), resolved via FetchContent from the `v0.4.0` release tarball. As of v0.3.0 the
+  (`esphome::api`), resolved via FetchContent from the `v0.4.1` release tarball. As of v0.3.0 the
   protobuf wire layer and the Noise crypto are carried in-tree, so the only thing fetched for the
   library is header-only Asio — there are no system `protobuf`/`libsodium` prerequisites.
 
