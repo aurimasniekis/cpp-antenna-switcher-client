@@ -84,7 +84,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 FetchContent_Declare(antenna-switcher-client
     URL      https://github.com/aurimasniekis/cpp-antenna-switcher-client/archive/refs/tags/v0.4.0.tar.gz
-    URL_HASH SHA256=0000000000000000000000000000000000000000000000000000000000000000  # replace with the v0.4.0 checksum
+    URL_HASH SHA256=dbf6c0f63d40be301b700362a58599a1911d054beac6b8ce47e44dcfbb75857c
 )
 FetchContent_MakeAvailable(antenna-switcher-client)
 
