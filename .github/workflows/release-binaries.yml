@@ -4,34 +4,74 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Which target(s) to build (manual runs only)"
+        type: choice
+        default: all
+        options:
+          - all
+          - linux-x86_64
+          - linux-arm64
+          - macos-intel
+          - macos-arm64
+          - windows-x86_64
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.experimental == true }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
+  # Resolve the build matrix so a manual run can build a single target (fast
+  # iteration when testing one platform) while release events always build all.
+  setup:
+    name: Resolve matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - id: resolve
+        shell: bash
+        env:
+          # Empty on release events -> falls through to "all".
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
           # Build on the oldest supported runner image so the released binaries
           # keep a low glibc baseline (22.04 ships glibc 2.35); building on
           # ubuntu-latest (24.04, glibc 2.39) bakes in GLIBC_2.36+ symbols that
           # fail to run on older servers.
-          - os: ubuntu-22.04
-            target: linux-x86_64
-          - os: ubuntu-22.04-arm
-            target: linux-arm64
-          - os: macos-15-intel
-            target: macos-intel
-          - os: macos-15
-            target: macos-arm64
-          - os: windows-latest
-            target: windows-x86_64
-            experimental: true
+          #
+          # Windows is pinned to windows-2022 + the v142 (14.29) toolset on
+          # purpose: the default v143 STL (VS 2022 17.10+) made std::mutex's
+          # constructor constexpr, changing its ABI. A shared-CRT binary built
+          # that way misbehaves on machines with an older msvcp140.dll (Asio's
+          # io_context locks internally), surfacing as connection resets /
+          # "End of file". v142 keeps the old mutex constructor, matching the
+          # widely-installed redistributable; windows-2022 ships it preinstalled.
+          all='[
+            {"os":"ubuntu-22.04","target":"linux-x86_64"},
+            {"os":"ubuntu-22.04-arm","target":"linux-arm64"},
+            {"os":"macos-15-intel","target":"macos-intel"},
+            {"os":"macos-15","target":"macos-arm64"},
+            {"os":"windows-2022","target":"windows-x86_64","experimental":true}
+          ]'
+          target="${TARGET:-all}"
+          if [ "$target" = "all" ]; then
+            include="$(jq -c '.' <<<"$all")"
+          else
+            include="$(jq -c --arg t "$target" '[.[] | select(.target == $t)]' <<<"$all")"
+          fi
+          # jq -c keeps this on a single line, required for the key=value form.
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: setup
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -57,7 +97,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          cmake -S . -B build `
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T v142 `
             -DCMAKE_BUILD_TYPE=Release `
             -DANTENNA_SWITCHER_BUILD_CLI=ON `
             -DANTENNA_SWITCHER_BUILD_TESTS=OFF `
