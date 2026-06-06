@@ -12,7 +12,7 @@
 
 namespace antenna_switcher {
 
-/// Library version, e.g. "0.4.1".
+/// Library version, e.g. "0.5.0".
 inline constexpr const char* version = ANTENNA_SWITCHER_VERSION_STRING;
 
 }  // namespace antenna_switcher

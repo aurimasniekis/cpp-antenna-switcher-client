@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(antenna-switcher-client
-    VERSION     0.4.1
+    VERSION     0.5.0
     DESCRIPTION "Async C++17 client for the antenna-switcher device over the ESPHome native API"
     LANGUAGES   CXX
 )
