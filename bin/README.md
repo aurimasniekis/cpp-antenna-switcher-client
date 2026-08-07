@@ -36,10 +36,10 @@ and `.rpm` packages for `x86_64` and `arm64`. Download the one for your distro a
 
 ```sh
 # Debian / Ubuntu
-sudo apt install ./antenna-switcher-cli_0.5.0_amd64.deb
+sudo apt install ./antenna-switcher-cli_0.6.0_amd64.deb
 
 # Fedora / RHEL / openSUSE
-sudo rpm -i antenna-switcher-cli-0.5.0-1.x86_64.rpm
+sudo rpm -i antenna-switcher-cli-0.6.0-1.x86_64.rpm
 ```
 
 The package installs `antenna-switcher-cli` to `/usr/bin`.
