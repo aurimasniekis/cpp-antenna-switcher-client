@@ -58,6 +58,13 @@ endif()
 #      CLI11          -> CLI11::CLI11
 #      spdlog         -> spdlog::spdlog
 #      nlohmann_json  -> nlohmann_json::nlohmann_json
+#
+#    All three are declared SYSTEM (CMake >= 3.25) so their headers reach the CLI
+#    as -isystem and our -Werror warning set does not apply to third-party code.
+#    Without this, spdlog's bundled fmt fails the build on macOS: it instantiates
+#    char_traits<fmt::detail::char8_type>, which the Xcode 26 libc++ deprecates.
+#    esphome-api-client, CLI11 and googletest already mark their own interfaces
+#    SYSTEM; spdlog and nlohmann_json do not.
 # ---------------------------------------------------------------------------
 if(ANTENNA_SWITCHER_BUILD_CLI)
     set(CLI11_BUILD_TESTS    OFF CACHE INTERNAL "")
@@ -69,6 +76,7 @@ if(ANTENNA_SWITCHER_BUILD_CLI)
         URL      https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.4.2.tar.gz
         URL_HASH SHA256=f2d893a65c3b1324c50d4e682c0cdc021dd0477ae2c048544f39eed6654b699a
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        SYSTEM
         FIND_PACKAGE_ARGS NAMES CLI11
     )
 
@@ -80,6 +88,7 @@ if(ANTENNA_SWITCHER_BUILD_CLI)
         URL      https://github.com/gabime/spdlog/archive/refs/tags/v1.14.1.tar.gz
         URL_HASH SHA256=1586508029a7d0670dfcb2d97575dcdc242d3868a259742b69f100801ab4e16b
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        SYSTEM
         FIND_PACKAGE_ARGS NAMES spdlog
     )
 
@@ -90,6 +99,7 @@ if(ANTENNA_SWITCHER_BUILD_CLI)
         URL      https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz
         URL_HASH SHA256=0d8ef5af7f9794e3263480193c491549b2ba6cc74bb018906202ada498a79406
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+        SYSTEM
         FIND_PACKAGE_ARGS NAMES nlohmann_json
     )
 
