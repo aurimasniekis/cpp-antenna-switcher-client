@@ -47,16 +47,24 @@ as::Channel channel_of(const int n) {
     return n == 2 ? as::Channel::Two : as::Channel::One;
 }
 
+/// The action to run once connected. It returns the command string actually
+/// sent, so the caller no longer has to predict it — the library decides it from
+/// the board's discovered capabilities.
+using ActionFn = std::function<std::string(const as::AntennaSwitcher&, as::Channel)>;
+
 /// Connect to `host`, run `action` against the target channel, wait up to the
 /// settle timeout for a state update on that channel, then emit the result.
-int run_action(CliContext& ctx,
-               const std::string& host,
-               const std::string& sent,
-               const std::function<void(as::AntennaSwitcher&, as::Channel)>& action) {
+///
+/// The nested try keeps the exit-code split honest: connection failures reach
+/// the outer handler (3/4/5), while a request the board cannot serve — an
+/// unadvertised feature, an out-of-range input — is a usage error and exits 2.
+int run_action(CliContext& ctx, const std::string& host, const ActionFn& action) {
     const as::Channel ch = ctx.channel();
     const as::Options opt = resolve_options(ctx, host);
 
     try {
+        // Declared before `dev` on purpose: ~AntennaSwitcher joins the loop
+        // thread, and the state callback below touches all three.
         bool updated = false;
         std::condition_variable cv;
         std::mutex mtx;
@@ -73,7 +81,13 @@ int run_action(CliContext& ctx,
         dev.connect();
         persist_connection(ctx, host, opt);
 
-        action(dev, ch);
+        std::string sent;
+        try {
+            sent = action(dev, ch);
+        } catch (const std::exception& e) {
+            std::cerr << "error: " << e.what() << "\n";
+            return 2;
+        }
 
         {
             std::unique_lock<std::mutex> lk(mtx);
@@ -110,8 +124,10 @@ std::vector<int> parse_inputs_csv(const std::string& csv) {
         if (t.empty())
             continue;
         const int v = parse_int(t, "input");
-        if (v < 1 || v > 10)
-            throw std::runtime_error("input out of range (1..10): '" + t + "'");
+        // Only the lower bound is device-independent; the upper one is the
+        // board's discovered input count and is checked once connected.
+        if (v < 1)
+            throw std::runtime_error("input must be 1 or greater: '" + t + "'");
         out.push_back(v);
     }
     return out;
@@ -135,8 +151,8 @@ std::vector<as::PlanStep> parse_plan_steps(const std::vector<std::string>& token
             steps.push_back(as::PlanStep::delay_step(v, as::TimeUnit::Us));
         } else {
             const int v = parse_int(tok, "input");
-            if (v < 1 || v > 10)
-                throw std::runtime_error("input out of range (1..10): '" + tok + "'");
+            if (v < 1)
+                throw std::runtime_error("input must be 1 or greater: '" + tok + "'");
             steps.push_back(as::PlanStep::input_step(v));
         }
     }
@@ -146,15 +162,14 @@ std::vector<as::PlanStep> parse_plan_steps(const std::vector<std::string>& token
 }
 
 int run_set(CliContext& ctx, const std::string& host, const int input) {
-    if (input < 1 || input > 10) {
-        std::cerr << "error: input out of range (1..10): " << input << "\n";
+    // The upper bound depends on the board and is enforced by dev.setInput().
+    if (input < 1) {
+        std::cerr << "error: input must be 1 or greater: " << input << "\n";
         return 2;
     }
-    return run_action(
-        ctx,
-        host,
-        as::detail::build_set_input(input),
-        [&](const as::AntennaSwitcher& dev, const as::Channel ch) { dev.setInput(ch, input); });
+    return run_action(ctx, host, [&](const as::AntennaSwitcher& dev, const as::Channel ch) {
+        return dev.setInput(ch, input);
+    });
 }
 
 int run_auto(CliContext& ctx,
@@ -163,31 +178,30 @@ int run_auto(CliContext& ctx,
              const bool micros,
              const std::vector<int>& inputs) {
     const as::TimeUnit unit = micros ? as::TimeUnit::Us : as::TimeUnit::Ms;
-    return run_action(ctx,
-                      host,
-                      as::detail::build_start_auto(interval, unit, inputs),
-                      [&](const as::AntennaSwitcher& dev, const as::Channel ch) {
-                          dev.startAuto(ch, interval, unit, inputs);
-                      });
+    return run_action(ctx, host, [&](const as::AntennaSwitcher& dev, const as::Channel ch) {
+        return dev.startAuto(ch, interval, unit, inputs);
+    });
 }
 
 int run_plan(CliContext& ctx,
              const std::string& host,
              const std::vector<as::PlanStep>& steps,
              const bool repeat) {
-    return run_action(ctx,
-                      host,
-                      as::detail::build_run_plan(steps, repeat),
-                      [&](const as::AntennaSwitcher& dev, const as::Channel ch) {
-                          dev.runPlan(ch, steps, repeat);
-                      });
+    return run_action(ctx, host, [&](const as::AntennaSwitcher& dev, const as::Channel ch) {
+        return dev.runPlan(ch, steps, repeat);
+    });
 }
 
 int run_stop(CliContext& ctx, const std::string& host) {
-    return run_action(ctx,
-                      host,
-                      as::detail::build_stop(),
-                      [&](const as::AntennaSwitcher& dev, const as::Channel ch) { dev.stop(ch); });
+    return run_action(ctx, host, [](const as::AntennaSwitcher& dev, const as::Channel ch) {
+        return dev.stop(ch);
+    });
+}
+
+int run_off(CliContext& ctx, const std::string& host) {
+    return run_action(ctx, host, [](const as::AntennaSwitcher& dev, const as::Channel ch) {
+        return dev.off(ch);
+    });
 }
 
 int run_offset(CliContext& ctx, const std::string& host, const int degrees) {
@@ -195,12 +209,9 @@ int run_offset(CliContext& ctx, const std::string& host, const int degrees) {
         std::cerr << "error: offset out of range (0..359): " << degrees << "\n";
         return 2;
     }
-    return run_action(ctx,
-                      host,
-                      "angle_offset=" + std::to_string(degrees),
-                      [&](const as::AntennaSwitcher& dev, const as::Channel ch) {
-                          dev.setAngleOffset(ch, degrees);
-                      });
+    return run_action(ctx, host, [&](const as::AntennaSwitcher& dev, const as::Channel ch) {
+        return dev.setAngleOffset(ch, degrees);
+    });
 }
 
 int run_state(CliContext& ctx, const std::string& host) {
@@ -216,14 +227,21 @@ int run_state(CliContext& ctx, const std::string& host) {
         else
             channels = {as::Channel::One, as::Channel::Two};
 
-        nlohmann::json arr = nlohmann::json::array();
+        std::vector<as::ChannelState> snapshots;
+        snapshots.reserve(channels.size());
         for (const as::Channel ch : channels)
-            arr.push_back(channel_state_to_json(ch, dev.state(ch)));
+            snapshots.push_back(dev.state(ch));
+
+        nlohmann::json arr = nlohmann::json::array();
+        for (std::size_t i = 0; i < channels.size(); ++i)
+            arr.push_back(channel_state_to_json(channels[i], snapshots[i]));
 
         const nlohmann::json doc = channels.size() == 1 ? arr.front() : arr;
         ctx.out.emit(doc, [&](std::ostream& os) {
-            for (const as::Channel ch : channels)
-                os << channel_state_to_text(ch, dev.state(ch)) << "\n";
+            for (std::size_t i = 0; i < channels.size(); ++i) {
+                os << channel_state_to_text(channels[i], snapshots[i]) << "\n";
+                os << capabilities_to_text(channels[i], snapshots[i].capabilities) << "\n";
+            }
         });
 
         dev.disconnect();

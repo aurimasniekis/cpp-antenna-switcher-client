@@ -25,6 +25,10 @@ TEST(Commands, Stop) {
     EXPECT_EQ(build_stop(), "stop");
 }
 
+TEST(Commands, Off) {
+    EXPECT_EQ(build_off(), "off");
+}
+
 TEST(Commands, StartAutoMilliseconds) {
     // A partial selection (1..9 inputs) becomes an explicit cycle order.
     EXPECT_EQ(build_start_auto(100, TimeUnit::Ms, {1, 2, 3}), "auto:100:1,2,3");
@@ -37,6 +41,27 @@ TEST(Commands, StartAutoMicrosecondsNoSelection) {
 TEST(Commands, StartAutoFullSelectionDropsCsv) {
     // An empty or full (10) selection cycles every input — no CSV suffix.
     EXPECT_EQ(build_start_auto(250, TimeUnit::Ms, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}), "auto:250");
+}
+
+TEST(Commands, StartAutoFullSelectionOnDiscoveredCount) {
+    // The "cycle everything" shortcut follows the board's real input count.
+    EXPECT_EQ(build_start_auto(250, TimeUnit::Ms, {1, 2, 3, 4, 5, 6, 7, 8}, 8), "auto:250");
+    EXPECT_EQ(build_start_auto(250, TimeUnit::Ms, {1, 2, 3}, 8), "auto:250:1,2,3");
+}
+
+TEST(Commands, StartAutoPartialSelectionKeepsCsvOnATenInputBoard) {
+    EXPECT_EQ(build_start_auto(250, TimeUnit::Ms, {1, 2, 3, 4, 5, 6, 7, 8, 9}, 10),
+              "auto:250:1,2,3,4,5,6,7,8,9");
+}
+
+TEST(Commands, StartAutoFullLengthButReorderedKeepsCsv) {
+    // A size comparison would have silently dropped this cycle order.
+    EXPECT_EQ(build_start_auto(250, TimeUnit::Ms, {3, 1, 2}, 3), "auto:250:3,1,2");
+}
+
+TEST(Commands, StartAutoZeroInputCountDoesNotUnderflow) {
+    EXPECT_EQ(build_start_auto(250, TimeUnit::Ms, {1}, 0), "auto:250:1");
+    EXPECT_EQ(build_start_auto(250, TimeUnit::Ms, {}, 0), "auto:250");
 }
 
 TEST(Commands, StartAutoMicrosecondsSingleInput) {

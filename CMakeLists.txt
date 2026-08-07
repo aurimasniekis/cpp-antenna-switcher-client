@@ -62,6 +62,7 @@ configure_file(
 # Library
 # ---------------------------------------------------------------------------
 set(ANTENNA_SWITCHER_SOURCES
+    src/capabilities.cpp
     src/client.cpp
     src/commands.cpp
 )

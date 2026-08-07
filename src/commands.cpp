@@ -24,22 +24,40 @@ std::string join_ints(const std::vector<int>& xs) {
     return out;
 }
 
+/// True when `in` is exactly 1,2,…,n ascending — the case the web UI encodes as
+/// a bare `auto:<delay>`. Deliberately not a size comparison: a full-length but
+/// reordered selection (`{3,1,2}` on a three-input board) carries a cycle order
+/// that must reach the device.
+bool covers_all_in_order(const std::vector<int>& in, const int n) {
+    if (n <= 0 || in.size() != static_cast<std::size_t>(n)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < in.size(); ++i) {
+        if (in[i] != static_cast<int>(i) + 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 std::string build_set_input(const int input) {
     return "set:" + std::to_string(input);
 }
 
-std::string
-build_start_auto(const int interval, const TimeUnit unit, const std::vector<int>& inputs) {
+std::string build_start_auto(const int interval,
+                             const TimeUnit unit,
+                             const std::vector<int>& inputs,
+                             const int input_count) {
     // delay = "<n>" (ms) or "<n>u" (µs), matching the UI's `${interval}u`.
     std::string delay = std::to_string(interval);
     if (unit == TimeUnit::Us) {
         delay += 'u';
     }
-    // A partial selection (1..9 inputs) becomes an explicit cycle order; an
-    // empty or full (10) selection cycles every input.
-    if (!inputs.empty() && inputs.size() < 10) {
+    // An explicit selection becomes a cycle order; an empty one — or exactly
+    // 1,2,…,input_count — cycles every input.
+    if (!inputs.empty() && !covers_all_in_order(inputs, input_count)) {
         return "auto:" + delay + ':' + join_ints(inputs);
     }
     return "auto:" + delay;
@@ -74,6 +92,10 @@ std::string build_run_plan(const std::vector<PlanStep>& steps, const bool repeat
 
 std::string build_stop() {
     return "stop";
+}
+
+std::string build_off() {
+    return "off";
 }
 
 }  // namespace antenna_switcher::detail

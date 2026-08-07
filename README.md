@@ -40,6 +40,11 @@ int main() {
 
         dev.connect();  // blocks until connected + entities discovered; throws on failure
 
+        // The board reports its own shape — how many inputs it has, and which
+        // optional features it implements.
+        auto caps = dev.capabilities(antenna_switcher::Channel::One);
+        std::cout << "#1 has " << caps.inputCount << " inputs\n";
+
         dev.setInput(antenna_switcher::Channel::One, 3);  // sends "set:3"
 
         antenna_switcher::ChannelState now = dev.state(antenna_switcher::Channel::One);
@@ -170,18 +175,80 @@ callback.
 
 ```cpp
 struct ChannelState {
-    int bearing;                 // compass bearing, degrees
-    int activeInput;             // selected input 1..10, 0 if unknown
+    int bearing;                 // compass bearing, degrees (only if Feature::Magnetometer)
+    int activeInput;             // selected input, 0 when isolated or not yet reported
     int angleOffset;             // compass offset for input 1, degrees 0..359
     long intervalUs;             // auto-cycle interval, microseconds
     Mode mode;                   // Manual / Auto / Plan / Unknown
+    InputState inputState;       // Unknown / Isolated / Selected — how to read activeInput
     std::vector<int> activeInputs;  // inputs in the current auto cycle
+    Capabilities capabilities;      // the channel's advertised shape
 };
+```
+
+`activeInput` is `0` both when the device has never reported an input and when every RF port is
+isolated (after `off`). `inputState` distinguishes the two:
+
+```cpp
+switch (s.inputState) {
+case InputState::Selected: /* s.activeInput names the live input */ break;
+case InputState::Isolated: /* every RF port is isolated */         break;
+case InputState::Unknown:  /* nothing reported yet */              break;
+}
 ```
 
 ### `Mode`
 
 `Manual`, `Auto`, `Plan`, or `Unknown` — the device's current operating mode for a channel.
+
+### `Capabilities` and `Feature`
+
+The hardware is not a fixed shape. Each switcher answers an `id` command with its input count, how
+many of those inputs sit on the compass ring, and a 64-bit feature word; the device republishes all
+three, and `connect()` picks them up.
+
+```cpp
+struct Capabilities {
+    int inputCount;         // selectable inputs, 1..inputCount
+    int circleCount;        // inputs arranged on the compass ring
+    std::uint64_t features; // raw feature bits
+    bool reported;          // false while still the legacy fallback
+
+    bool has(Feature f) const noexcept;
+};
+
+enum class Feature : std::uint64_t {
+    Magnetometer = 1ULL << 0,  // a compass is fitted; `bearing` is meaningful
+    Auto         = 1ULL << 1,  // `auto:` cycling is implemented
+    Plan         = 1ULL << 2,  // `plan:` sequences are implemented
+    Off          = 1ULL << 3,  // `off` (isolate every RF port) is implemented
+    Echo         = 1ULL << 4,  // the board echoes received commands
+    Led          = 1ULL << 5,  // status LED control is fitted
+};
+```
+
+Read them with `capabilities(ch)` — or from any `ChannelState`, which carries the same snapshot:
+
+```cpp
+const auto caps = dev.capabilities(Channel::One);
+if (caps.has(Feature::Off))
+    dev.off(Channel::One);
+for (int i = 1; i <= caps.inputCount; ++i)
+    /* every input this board actually has */;
+```
+
+When a board does not report — because it never answered `id`, or because the device firmware
+predates the capability entities — the fields hold the **legacy fallback** and `reported` stays
+`false`: `legacy_input_count` (10), `legacy_circle_count` (8) and `legacy_features` (`0x17`:
+magnetometer, auto, plan, echo). The device firmware applies the same fallback, so both ends agree.
+
+Capabilities can lag up to ~10 s after the device boots. `connect()` waits a bounded **750 ms** for
+them and then proceeds with the fallback rather than failing; real values that arrive later reach
+you through `onStateChanged`.
+
+Bits outside `Feature` are reserved: they are preserved verbatim in `features` and otherwise ignored.
+`antenna_switcher::detail` exposes `parse_feature_flags`, `format_feature_flags`, `feature_name`,
+`decode_features` and `feature_list` for rendering them.
 
 ### `PlanStep` and `TimeUnit`
 
@@ -246,7 +313,8 @@ snapshot.
 dev.setInput(antenna_switcher::Channel::One, 5);  // wire command: "set:5"
 ```
 
-Inputs are `1..10`. Selecting an input puts the channel in manual mode.
+Inputs are `1..capabilities(ch).inputCount`. Selecting an input puts the channel in manual mode.
+An input outside that range throws `UnsupportedRequest` before anything reaches the wire.
 
 ### Auto-cycle inputs
 
@@ -261,9 +329,12 @@ dev.startAuto(Channel::One, 250, TimeUnit::Ms, {1, 2, 3});
 dev.startAuto(Channel::One, 5000, TimeUnit::Us, {});
 ```
 
-Edge case: a selection of **1..9** inputs becomes an explicit cycle order; an **empty or full (all
-ten)** selection cycles every input and emits no CSV suffix. This is verified in the tests
-(`StartAutoFullSelectionDropsCsv`).
+Edge case: an explicit selection becomes a cycle order; an **empty** selection — or exactly
+`1,2,…,inputCount` ascending — cycles every input and emits no CSV suffix. A full-length but
+*reordered* selection keeps its CSV, because that order is the point. Verified in the tests
+(`StartAutoFullSelectionDropsCsv`, `StartAutoFullLengthButReorderedKeepsCsv`).
+
+Needs `Feature::Auto`, and every listed input must be within range.
 
 ### Run a plan
 
@@ -286,6 +357,20 @@ Pass `repeat=false` (the default) to run the plan once.
 ```cpp
 dev.stop(antenna_switcher::Channel::One);  // wire command: "stop"
 ```
+
+### Isolate every RF port
+
+```cpp
+using antenna_switcher::Channel;
+using antenna_switcher::Feature;
+
+if (dev.capabilities(Channel::One).has(Feature::Off))
+    dev.off(Channel::One);  // wire command: "off"
+```
+
+The channel then reports `mode=manual`, `activeInput=0` with `inputState == InputState::Isolated`,
+and an empty `activeInputs`. On a board that does not advertise `Feature::Off`, `off()` throws
+`UnsupportedRequest` and sends nothing.
 
 ### Set the compass angle offset
 
@@ -350,18 +435,22 @@ the `number` entity.
 | `startAuto(ch, v, Us, {})`     | `auto:DELAYu`      | `auto:5000u`           |
 | `runPlan(ch, steps, repeat)`   | `plan:part,…[,r]`  | `plan:1,s100,2,s50u,r` |
 | `stop(ch)`                     | `stop`             | `stop`                 |
+| `off(ch)`                      | `off`              | `off`                  |
 | `setAngleOffset(ch, deg)`      | *(number entity)*  | —                      |
+
+Every action method returns the command string it actually sent, so you never have to predict it.
 
 Rules:
 
-- **auto** — delay is `<v>` for milliseconds or `<v>u` for microseconds. A selection of 1..9 inputs
-  is appended as a CSV cycle order; an empty or full (10) selection cycles every input.
+- **auto** — delay is `<v>` for milliseconds or `<v>u` for microseconds. An explicit selection is
+  appended as a CSV cycle order; an empty selection, or exactly `1,2,…,inputCount`, cycles every
+  input.
 - **plan** — each step is either an input number (`N`) or a delay (`sV` ms / `sVu` µs); append `r` to
   repeat.
 
 The pure builders behind these are available in `antenna_switcher::detail`
-(`build_set_input`, `build_start_auto`, `build_run_plan`, `build_stop`) and are unit-testable without
-a device.
+(`build_set_input`, `build_start_auto`, `build_run_plan`, `build_stop`, `build_off`) and are
+unit-testable without a device.
 
 ## Error handling
 
@@ -370,10 +459,12 @@ The library reports errors with **exceptions**:
 - `connect()` throws on handshake failure, an authentication/encryption error
   (`esphome::api::ApiError` subclasses), or a `std::runtime_error` if an expected entity is missing
   after discovery. Always call it inside `try`/`catch`.
-- The action methods (`setInput`, etc.) marshal work onto the loop and do not block on a device
-  response, so they generally do not throw synchronously; observe their effect through `state()` or
-  `onStateChanged`.
-- `state()` and `isConnected()` do not throw.
+- The action methods (`setInput`, etc.) validate the request against the channel's capabilities on
+  the **calling** thread and throw `antenna_switcher::UnsupportedRequest` (a `std::runtime_error`)
+  when the board does not advertise the feature or the input is outside its range — nothing is sent
+  in that case. Otherwise they marshal work onto the loop without blocking on a device response, so
+  they report no device-side failure; observe their effect through `state()` or `onStateChanged`.
+- `state()`, `capabilities()` and `isConnected()` do not throw.
 
 Success and failure:
 
@@ -398,19 +489,24 @@ try {
 | `connect()`                      | Connect + discover entities | Blocks; throws on failure                                   |
 | `disconnect()`                   | Stop and disconnect         | —                                                           |
 | `isConnected()`                  | Connection status           | Does not throw                                              |
-| `setInput(ch, n)`                | Select input 1..10          | Manual mode                                                 |
-| `startAuto(ch, v, unit, inputs)` | Auto-cycle                  | 1..9 inputs ⇒ explicit order; empty/10 ⇒ all                |
-| `runPlan(ch, steps, repeat)`     | Run an ordered plan         | `repeat` defaults to `false`                                |
+| `setInput(ch, n)`                | Select input `1..inputCount`| Manual mode; throws `UnsupportedRequest` out of range       |
+| `startAuto(ch, v, unit, inputs)` | Auto-cycle                  | Needs `Feature::Auto`; empty/full-ascending ⇒ all           |
+| `runPlan(ch, steps, repeat)`     | Run an ordered plan         | Needs `Feature::Plan`; `repeat` defaults to `false`         |
 | `stop(ch)`                       | Stop auto/plan              | —                                                           |
+| `off(ch)`                        | Isolate every RF port       | Needs `Feature::Off`                                        |
 | `setAngleOffset(ch, deg)`        | Set compass offset 0..359   | Writes the `number` entity                                  |
 | `state(ch)`                      | Thread-safe snapshot        | Returns a `ChannelState` by value                           |
+| `capabilities(ch)`               | Advertised board shape      | Same snapshot as `state(ch).capabilities`                   |
 | `onStateChanged(cb)`             | Register state listener     | Fires on the worker thread                                  |
+
+Every action method returns the command string it sent (`setAngleOffset` returns
+`angle_offset=<deg>`). None are `[[nodiscard]]` — ignoring the result is fine.
 
 ## Examples
 
 | Example                                        | Demonstrates                                                                                                   |
 |------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
-| [`examples/control.cpp`](examples/control.cpp) | Connect, exercise set / auto / plan / stop / angle-offset on channel #1, and print each `onStateChanged` event |
+| [`examples/control.cpp`](examples/control.cpp) | Connect, print the advertised capabilities, exercise set / auto / plan / stop / off / angle-offset on channel #1 (skipping what the board does not advertise), and print each `onStateChanged` event |
 
 Build and run it against a live device:
 

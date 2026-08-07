@@ -63,9 +63,9 @@ int run(const int argc, char** argv) {
     // same target). Either form — or ANTENNA_SWITCHER_CLI_HOST — sets the host.
     app.add_option("HOST", g.host, "Device host/IP or saved alias");
 
-    auto* c_set = app.add_subcommand("set", "Select an input (1..10)")->fallthrough();
+    auto* c_set = app.add_subcommand("set", "Select an input")->fallthrough();
     int set_input = 0;
-    c_set->add_option("input", set_input, "Input number 1..10")->required();
+    c_set->add_option("input", set_input, "Input number (1..the board's input count)")->required();
 
     auto* c_auto = app.add_subcommand("auto", "Auto-cycle inputs")->fallthrough();
     int auto_interval = 0;
@@ -82,6 +82,9 @@ int run(const int argc, char** argv) {
     c_plan->add_flag("--repeat", plan_repeat, "Repeat the plan");
 
     const auto* c_stop = app.add_subcommand("stop", "Stop auto/plan activity")->fallthrough();
+
+    const auto* c_off =
+        app.add_subcommand("off", "Isolate every RF port (needs the 'off' feature)")->fallthrough();
 
     auto* c_offset = app.add_subcommand("offset", "Set the angle offset (0..359)")->fallthrough();
     int offset_deg = 0;
@@ -140,6 +143,8 @@ int run(const int argc, char** argv) {
     }
     if (c_stop->parsed())
         return run_stop(ctx, host);
+    if (c_off->parsed())
+        return run_off(ctx, host);
     if (c_offset->parsed())
         return run_offset(ctx, host, offset_deg);
     if (c_state->parsed())

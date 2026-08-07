@@ -47,6 +47,7 @@ public:
 
     int repl() {
         seed_states();
+        print_caps();
         print_panel();
         std::string line;
         while (std::getline(std::cin, line)) {
@@ -99,8 +100,11 @@ private:
         std::cout.flush();
     }
 
+    /// The prompt carries the target channel's discovered input range, so the
+    /// accepted values for `set` are always in view.
     [[nodiscard]] std::string prompt() const {
-        return "[#" + std::to_string(current_) + "] > ";
+        return "[#" + std::to_string(current_) + " 1-" +
+               std::to_string(dev_.capabilities(target()).inputCount) + "] > ";
     }
 
     void print_msg(const std::string& msg) {
@@ -109,15 +113,25 @@ private:
         std::cout.flush();
     }
 
+    /// Capabilities are printed above the panel, never inside it: the panel
+    /// repaints a fixed number of rows, and these lines simply scroll away.
+    void print_caps() {
+        print_msg(capabilities_to_text(as::Channel::One, dev_.capabilities(as::Channel::One)) +
+                  "\n" +
+                  capabilities_to_text(as::Channel::Two, dev_.capabilities(as::Channel::Two)));
+    }
+
     static void print_help() {
         std::cout << "commands:\n"
-                  << "  set <n>                 select input n (1..10)\n"
+                  << "  set <n>                 select input n (see the prompt for the range)\n"
                   << "  auto <iv> [csv] [us]    auto-cycle (e.g. auto 250 1,2,3)\n"
                   << "  plan <step>... [repeat] plan (e.g. plan 1 100ms 2 50us repeat)\n"
                   << "  stop                    stop auto/plan\n"
+                  << "  off                     isolate every RF port\n"
                   << "  offset <deg>            set angle offset (0..359)\n"
                   << "  channel <1|2>           switch the target channel\n"
                   << "  state                   reprint the panel\n"
+                  << "  caps                    reprint the advertised capabilities\n"
                   << "  help                    show this help\n"
                   << "  quit                    disconnect and exit\n";
     }
@@ -147,6 +161,12 @@ private:
             }
             if (verb == "state")
                 return true;  // panel reprints after process() returns
+            if (verb == "caps") {
+                // Late-arriving capabilities land here: the device can take up
+                // to ~10s after boot to answer its switchers' `id` command.
+                print_caps();
+                return true;
+            }
             if (verb == "channel") {
                 if (tok.size() < 2)
                     throw std::runtime_error("usage: channel <1|2>");
@@ -159,11 +179,9 @@ private:
             if (verb == "set") {
                 if (tok.size() < 2)
                     throw std::runtime_error("usage: set <n>");
-                const int n = std::stoi(tok.at(1));
-                if (n < 1 || n > 10)
-                    throw std::runtime_error("input out of range (1..10)");
-                dev_.setInput(target(), n);
-                print_msg("ok: " + as::detail::build_set_input(n));
+                // Range checking belongs to the library, which knows the board's
+                // input count; its throw is caught below and printed as `error:`.
+                print_msg("ok: " + dev_.setInput(target(), std::stoi(tok.at(1))));
                 return true;
             }
             if (verb == "auto") {
@@ -179,8 +197,7 @@ private:
                         inputs = parse_inputs_csv(tok.at(i));
                 }
                 const as::TimeUnit unit = micros ? as::TimeUnit::Us : as::TimeUnit::Ms;
-                dev_.startAuto(target(), iv, unit, inputs);
-                print_msg("ok: " + as::detail::build_start_auto(iv, unit, inputs));
+                print_msg("ok: " + dev_.startAuto(target(), iv, unit, inputs));
                 return true;
             }
             if (verb == "plan") {
@@ -193,13 +210,15 @@ private:
                         steps.push_back(tok.at(i));
                 }
                 const std::vector<as::PlanStep> parsed = parse_plan_steps(steps);
-                dev_.runPlan(target(), parsed, repeat);
-                print_msg("ok: " + as::detail::build_run_plan(parsed, repeat));
+                print_msg("ok: " + dev_.runPlan(target(), parsed, repeat));
                 return true;
             }
             if (verb == "stop") {
-                dev_.stop(target());
-                print_msg("ok: " + as::detail::build_stop());
+                print_msg("ok: " + dev_.stop(target()));
+                return true;
+            }
+            if (verb == "off") {
+                print_msg("ok: " + dev_.off(target()));
                 return true;
             }
             if (verb == "offset") {
@@ -208,8 +227,7 @@ private:
                 const int deg = std::stoi(tok.at(1));
                 if (deg < 0 || deg > 359)
                     throw std::runtime_error("offset out of range (0..359)");
-                dev_.setAngleOffset(target(), deg);
-                print_msg("ok: angle_offset=" + std::to_string(deg));
+                print_msg("ok: " + dev_.setAngleOffset(target(), deg));
                 return true;
             }
             print_msg("unknown command '" + verb + "' (try 'help')");

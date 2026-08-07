@@ -14,12 +14,15 @@
 
 namespace asw_cli {
 
-/// Parse an "1,2,3" CSV of input numbers (1..10). Throws std::runtime_error on a
-/// malformed or out-of-range token. An empty string yields an empty vector.
+/// Parse an "1,2,3" CSV of input numbers. Throws std::runtime_error on a
+/// malformed or non-positive token. An empty string yields an empty vector.
+/// The upper bound is the board's discovered input count, so it is enforced by
+/// the library once connected — not here, before a connection exists.
 std::vector<int> parse_inputs_csv(const std::string& csv);
 
-/// Parse plan step tokens: a bare integer is an input (1..10); "<n>ms"/"<n>us"
-/// is a delay. Throws std::runtime_error on a malformed token.
+/// Parse plan step tokens: a bare positive integer is an input; "<n>ms"/"<n>us"
+/// is a delay. Throws std::runtime_error on a malformed token. As with
+/// parse_inputs_csv, the input upper bound is checked by the library.
 std::vector<antenna_switcher::PlanStep> parse_plan_steps(const std::vector<std::string>& tokens);
 
 // --- Action commands (connect, send, settle, emit, disconnect) --------------
@@ -34,6 +37,7 @@ int run_plan(CliContext& ctx,
              const std::vector<antenna_switcher::PlanStep>& steps,
              bool repeat);
 int run_stop(CliContext& ctx, const std::string& host);
+int run_off(CliContext& ctx, const std::string& host);
 int run_offset(CliContext& ctx, const std::string& host, int degrees);
 
 // --- Read / stream commands -------------------------------------------------

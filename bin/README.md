@@ -3,9 +3,10 @@
 [![CI](https://github.com/aurimasniekis/cpp-antenna-switcher-client/actions/workflows/ci.yml/badge.svg)](https://github.com/aurimasniekis/cpp-antenna-switcher-client/actions/workflows/ci.yml)
 [![Docs](https://github.com/aurimasniekis/cpp-antenna-switcher-client/actions/workflows/docs.yml/badge.svg)](https://aurimasniekis.github.io/cpp-antenna-switcher-client/)
 
-A command-line tool for the `antenna-switcher` ESP32 device over the ESPHome native API: run one-shot actions (set / auto / plan / stop / offset),
+A command-line tool for the `antenna-switcher` ESP32 device over the ESPHome native API: run one-shot actions (set / auto / plan / stop / off / offset),
 read state once, stream live updates, or open an interactive panel — with human-readable **text** or
-machine-readable **JSON** output.
+machine-readable **JSON** output. It discovers each switcher's shape — input count and optional
+features — from the device rather than assuming one.
 
 ## Install
 
@@ -96,19 +97,33 @@ library).
 
 | Command                                   | What it does                                    |
 |-------------------------------------------|-------------------------------------------------|
-| `set <input>`                             | Select an input (`1..10`) on the target channel |
+| `set <input>`                             | Select an input on the target channel           |
 | `auto <interval> [--us] [--inputs 1,2,3]` | Start auto-cycling                              |
 | `plan <step>... [--repeat]`               | Run an ordered plan                             |
 | `stop`                                    | Stop auto/plan activity                         |
+| `off`                                     | Isolate every RF port                           |
 | `offset <degrees>`                        | Set the compass angle offset (`0..359`)         |
 | `state`                                   | Print a one-shot snapshot, then exit            |
 | `watch [--channel N]`                     | Stream state changes until Ctrl-C               |
 | `interactive`                             | Live ANSI panel + command REPL                  |
 | `config list \| path \| forget <alias>`   | Manage saved devices                            |
 
-The action commands (`set`, `auto`, `plan`, `stop`, `offset`) all follow the same flow: connect →
-send the command → wait up to `--timeout` for the channel to confirm the new state → print the
-resulting state → disconnect. On a successful connection the device is remembered in the config.
+The action commands (`set`, `auto`, `plan`, `stop`, `off`, `offset`) all follow the same flow:
+connect → send the command → wait up to `--timeout` for the channel to confirm the new state → print
+the resulting state → disconnect. On a successful connection the device is remembered in the config.
+
+### Capabilities and range checking
+
+Each switcher reports its own input count and which optional features (`auto`, `plan`, `off`, a
+magnetometer, …) it implements. `state` and `interactive` print this; `state --output json` carries
+it under `capabilities`. A board that does not report falls back to 10 inputs, 8 on the compass ring,
+and the `auto`/`plan`/`magnetometer`/`echo` feature set — shown as `(defaults)`.
+
+Requests the board cannot serve are rejected locally, before anything reaches the wire: an input
+above its input count, or a command whose feature it does not advertise.
+
+**All range errors still exit `2`; only the upper bound now requires a connection** — the lower bound
+(`>= 1`) and `offset`'s `0..359` are still checked before connecting.
 
 ### `set`
 
@@ -117,7 +132,9 @@ antenna-switcher-cli -k <psk> 10.28.0.2 set 5          # input 5 on channel #1
 antenna-switcher-cli -k <psk> -c 2 10.28.0.2 set 3     # input 3 on channel #2
 ```
 
-Input must be `1..10`; out-of-range exits with code `2`.
+Input must be `1..` the board's discovered input count; out-of-range exits with code `2`. An input
+below `1` is caught before connecting; the upper bound is checked once the board's capabilities are
+known, and nothing is sent in either case.
 
 ### `auto`
 
@@ -152,6 +169,16 @@ Each step token is either a bare integer (select that input) or a delay written 
 antenna-switcher-cli -k <psk> 10.28.0.2 stop
 ```
 
+### `off`
+
+```sh
+antenna-switcher-cli -k <psk> 10.28.0.2 off
+```
+
+Isolates every RF port on the target channel. The channel then reports `mode=manual`,
+`input=isolated` and `inputs=[]`. On a board that does not advertise the `off` feature the command is
+refused locally with an `error:` line and exit code `2` — nothing is sent on the wire.
+
 ### `offset`
 
 ```sh
@@ -170,6 +197,18 @@ antenna-switcher-cli -k <psk> -o json 10.28.0.2 state  # JSON
 
 With `-c`/`--channel`, only that channel is shown and JSON output is a single object; without it,
 both channels are shown and JSON output is an array.
+
+In text mode each channel prints two lines — the state, then its advertised capabilities:
+
+```
+#1  mode=auto input=2 bearing=137 offset=45 interval=250000us inputs=[1,2,3]
+#1  caps inputs=8 circle=8 features=[magnetometer,auto,plan,off,echo,led]
+#2  mode=manual input=isolated offset=0 interval=0us inputs=[]
+#2  caps inputs=10 circle=8 features=[magnetometer,auto,plan,echo] (defaults)
+```
+
+`bearing=` is omitted on a board that does not advertise a magnetometer, and `input=` reads
+`isolated` after `off` or `?` before the device has reported one.
 
 ### `watch`
 
@@ -194,22 +233,28 @@ antenna-switcher-cli -k <psk> 10.28.0.2 interactive
 ```
 
 Opens a live two-line status panel (one row per channel) that repaints in place as updates arrive,
-above a `> ` prompt that stays editable. The REPL accepts:
+above a `[#1 1-8] > ` prompt that stays editable — the range in the prompt is the target channel's
+discovered input range. The capabilities of both channels are printed once above the panel. The REPL
+accepts:
 
 ```
-set <n>                 select input n (1..10)
+set <n>                 select input n (see the prompt for the range)
 auto <iv> [csv] [us]    auto-cycle, e.g. "auto 250 1,2,3" or "auto 5000 us"
 plan <step>... [repeat] e.g. "plan 1 100ms 2 50us repeat"
 stop                    stop auto/plan
+off                     isolate every RF port
 offset <deg>            set the angle offset (0..359)
 channel <1|2>           switch the target channel
 state                   reprint the panel
+caps                    reprint the advertised capabilities
 help                    show command help
 quit                    disconnect and exit (also Ctrl-D)
 ```
 
-`set`/`auto`/`plan`/`stop`/`offset` act on the current channel (start from `-c`, change it with
-`channel`). Invalid commands print an `error:` line and leave the session running.
+`set`/`auto`/`plan`/`stop`/`off`/`offset` act on the current channel (start from `-c`, change it with
+`channel`). Invalid commands — including a request the board cannot serve — print an `error:` line
+and leave the session running. `caps` is useful shortly after a device boots: it can take ~10 s to
+finish probing its switchers, and the panel starts from the fallback shape until it does.
 
 ### `config`
 
@@ -252,12 +297,31 @@ A channel state serializes as:
   "channel": 1,
   "mode": "auto",
   "activeInput": 2,
+  "inputState": "selected",
   "bearing": 137,
   "angleOffset": 45,
   "intervalUs": 250000,
-  "activeInputs": [1, 2, 3]
+  "activeInputs": [1, 2, 3],
+  "capabilities": {
+    "inputCount": 8,
+    "circleCount": 8,
+    "features": "000000000000003F",
+    "featureList": ["magnetometer", "auto", "plan", "off", "echo", "led"],
+    "reported": true
+  }
 }
 ```
+
+Notes on the shape:
+
+- `bearing` is **absent** when the board does not advertise a magnetometer, so `jq .bearing` yields
+  `null` there rather than a meaningless `0`.
+- `activeInput` stays numeric always and is `0` both when isolated and when unknown; `inputState`
+  (`selected` / `isolated` / `unknown`) disambiguates.
+- `capabilities.features` is a **hex string, never a number** — a 64-bit value above 2^53 would lose
+  precision in a JavaScript consumer. Use `featureList` for names.
+- `capabilities.reported` is `false` when the values are the built-in fallback rather than something
+  the board actually said.
 
 An action result wraps the state with the exact command that was sent:
 
@@ -277,7 +341,7 @@ An action result wraps the state with the exact command that was sent:
 | Code | Meaning                                                                            |
 |------|------------------------------------------------------------------------------------|
 | `0`  | Success                                                                            |
-| `2`  | Usage error (bad arguments, out-of-range value, missing host, parse error)         |
+| `2`  | Usage error (bad arguments, out-of-range value, unsupported feature, missing host, parse error) |
 | `3`  | Authentication / encryption / handshake failure (often a wrong or missing `--key`) |
 | `4`  | Connection failure or timeout (refused, unreachable, unresolved)                   |
 | `5`  | Other device/protocol error                                                        |

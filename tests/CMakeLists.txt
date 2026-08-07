@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 set(_antenna_switcher_test_sources
+    test_capabilities.cpp
     test_commands.cpp
 )
 
